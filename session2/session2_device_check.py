@@ -14,8 +14,7 @@ MAX_DEVICES_TO_CHECK = 6
 
 
 def check_device(index):
-    cap = cv2.VideoCapture(index)
-
+    cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
     if not cap.isOpened():
         cap.release()
         return None
