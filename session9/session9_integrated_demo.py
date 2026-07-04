@@ -101,6 +101,7 @@ def main():
     if len(sys.argv) > 1:
         camera_index = int(sys.argv[1])
 
+
     cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
     if not cap.isOpened():
         print(f"Error: could not open camera at index {camera_index}")
