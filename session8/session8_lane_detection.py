@@ -34,10 +34,22 @@ while True:
 
     lines = cv2.HoughLinesP(roi,1,np.pi/180,40,minLineLength=40,maxLineGap=80)
 
-    if lines is not None:
-        for line in lines:
-            x1,y1,x2,y2 = line[0]
-            cv2.line(out,(x1,y1),(x2,y2),(0,255,0),3)
+   if lines is not None:
+    for line in lines:
+
+        # OpenCV may return [[x1,y1,x2,y2]] or [x1,y1,x2,y2]
+        if len(line) == 1:
+            x1, y1, x2, y2 = line[0]
+        else:
+            x1, y1, x2, y2 = line
+
+        cv2.line(
+            out,
+            (int(x1), int(y1)),
+            (int(x2), int(y2)),
+            (0, 255, 0),
+            3
+        )
 
     cv2.putText(out,"Lane Detection",(20,40),
                 cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,255),2)
