@@ -1,63 +1,109 @@
+"""
+Session 8: Lane Detection
+------------------------------
+Classic OpenCV lane-detection pipeline:
+    1. Grayscale + blur
+    2. Canny edge detection
+    3. Region-of-interest mask (bottom trapezoid of the frame)
+    4. HoughLinesP to find line segments
+    5. Draw lines back onto the original frame
 
-import cv2
+Includes a robust line-unpacking helper because different OpenCV builds
+return HoughLinesP results in slightly different shapes
+([[x1,y1,x2,y2]] vs [x1,y1,x2,y2] vs [[[x1,y1,x2,y2]]]).
+
+Usage:
+    python3 session8_lane_detection.py [camera_index]
+"""
+
+import sys
 import numpy as np
+import cv2
+
+DEFAULT_CAMERA_INDEX = 0
+
 
 def region_of_interest(img):
-    h, w = img.shape[:2]
+    height, width = img.shape[:2]
     mask = np.zeros_like(img)
+
+    # Trapezoid covering the lower half of the frame
     polygon = np.array([[
-        (0, h),
-        (int(w*0.45), int(h*0.60)),
-        (int(w*0.55), int(h*0.60)),
-        (w, h)
+        (int(0.05 * width), height),
+        (int(0.45 * width), int(0.55 * height)),
+        (int(0.55 * width), int(0.55 * height)),
+        (int(0.95 * width), height),
     ]], dtype=np.int32)
+
     cv2.fillPoly(mask, polygon, 255)
     return cv2.bitwise_and(img, mask)
 
-cap = cv2.VideoCapture(0)
-if not cap.isOpened():
-    print("Unable to open camera")
-    raise SystemExit
 
-print("Lane Detection Started - Press q to quit")
+def unpack_line(line):
+    """
+    Handle the different shapes OpenCV may return for a single line
+    from HoughLinesP: [[x1,y1,x2,y2]], [x1,y1,x2,y2], or [[[x1,y1,x2,y2]]].
+    """
+    arr = np.array(line).reshape(-1)
+    x1, y1, x2, y2 = arr[:4]
+    return int(x1), int(y1), int(x2), int(y2)
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
 
-    out = frame.copy()
+def detect_lanes(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray,(5,5),0)
-    edges = cv2.Canny(blur,50,150)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blur, 50, 150)
     roi = region_of_interest(edges)
 
-    lines = cv2.HoughLinesP(roi,1,np.pi/180,40,minLineLength=40,maxLineGap=80)
+    lines = cv2.HoughLinesP(
+        roi,
+        rho=1,
+        theta=np.pi / 180,
+        threshold=40,
+        minLineLength=40,
+        maxLineGap=100,
+    )
 
-   if lines is not None:
-    for line in lines:
+    out = frame.copy()
 
-        # OpenCV may return [[x1,y1,x2,y2]] or [x1,y1,x2,y2]
-        if len(line) == 1:
-            x1, y1, x2, y2 = line[0]
-        else:
-            x1, y1, x2, y2 = line
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = unpack_line(line)
+            cv2.line(out, (x1, y1), (x2, y2), (0, 255, 0), 3)
 
-        cv2.line(
-            out,
-            (int(x1), int(y1)),
-            (int(x2), int(y2)),
-            (0, 255, 0),
-            3
-        )
+    return out, edges
 
-    cv2.putText(out,"Lane Detection",(20,40),
-                cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,255),2)
 
-    cv2.imshow("Session8 Lane Detection", out)
+def main():
+    camera_index = DEFAULT_CAMERA_INDEX
+    if len(sys.argv) > 1:
+        camera_index = int(sys.argv[1])
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        print(f"Error: could not open camera at index {camera_index}")
+        return
 
-cap.release()
-cv2.destroyAllWindows()
+    print("Lane detection started. Press 'q' to quit.")
+
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            print("Warning: failed to grab frame. Retrying...")
+            continue
+
+        result, edges = detect_lanes(frame)
+
+        cv2.imshow("Session 8 - Lane Detection", result)
+        cv2.imshow("Edges (debug)", edges)
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    print("Lane detection stopped.")
+
+
+if __name__ == "__main__":
+    main()

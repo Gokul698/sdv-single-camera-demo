@@ -1,74 +1,96 @@
-from ultralytics import YOLO
+"""
+Session 8: Obstacle Detection
+------------------------------
+Motion-based obstacle detection using background subtraction (MOG2).
+This is NOT AI object classification -- it flags anything that moves
+against the learned background as a potential obstacle. Good as a
+lightweight demo when torch/ultralytics/OpenVINO aren't installed.
+
+Usage:
+    python3 session8_obstacle_detection.py [camera_index]
+"""
+
+import sys
 import cv2
 
-# Load YOLOv8 Nano model
-model = YOLO("yolov8n.pt")
+DEFAULT_CAMERA_INDEX = 0
+MIN_CONTOUR_AREA = 800  # ignore tiny noise blobs
 
-# Open default camera
-cap = cv2.VideoCapture(0)
 
-if not cap.isOpened():
-    print("Error: Unable to open camera.")
-    exit()
+def main():
+    camera_index = DEFAULT_CAMERA_INDEX
+    if len(sys.argv) > 1:
+        camera_index = int(sys.argv[1])
 
-print("Press 'q' to quit.")
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        print(f"Error: could not open camera at index {camera_index}")
+        return
 
-while True:
-    ret, frame = cap.read()
+    back_sub = cv2.createBackgroundSubtractorMOG2(
+        history=300, varThreshold=40, detectShadows=True
+    )
 
-    if not ret:
-        break
+    print("Obstacle detection started. Press 'q' to quit.")
+    print("Hold still for a second at startup so the background model can learn.")
 
-    # Run YOLO inference
-    results = model(frame, verbose=False)
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            print("Warning: failed to grab frame. Retrying...")
+            continue
 
-    annotated_frame = frame.copy()
+        fg_mask = back_sub.apply(frame)
 
-    for result in results:
-        boxes = result.boxes
+        # Remove shadow pixels (gray value 127) and clean up noise
+        _, fg_mask = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
+        fg_mask = cv2.erode(fg_mask, None, iterations=1)
+        fg_mask = cv2.dilate(fg_mask, None, iterations=2)
 
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
+        contours, _ = cv2.findContours(
+            fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
 
-            confidence = float(box.conf[0])
+        output = frame.copy()
+        obstacle_count = 0
 
-            class_id = int(box.cls[0])
-
-            class_name = model.names[class_id]
-
-            # Ignore weak detections
-            if confidence < 0.5:
+        for c in contours:
+            if cv2.contourArea(c) < MIN_CONTOUR_AREA:
                 continue
 
-            color = (0, 255, 0)
-
-            if class_name in ["person", "car", "truck", "bus", "motorcycle", "bicycle"]:
-                color = (0, 0, 255)
-
-            cv2.rectangle(
-                annotated_frame,
-                (x1, y1),
-                (x2, y2),
-                color,
-                2
-            )
-
-            label = f"{class_name} {confidence:.2f}"
-
+            obstacle_count += 1
+            x, y, w, h = cv2.boundingRect(c)
+            cv2.rectangle(output, (x, y), (x + w, y + h), (0, 0, 255), 2)
             cv2.putText(
-                annotated_frame,
-                label,
-                (x1, y1 - 10),
+                output,
+                "Obstacle",
+                (x, max(y - 10, 0)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
-                color,
-                2
+                (0, 0, 255),
+                2,
             )
 
-    cv2.imshow("Obstacle Detection - YOLOv8", annotated_frame)
+        cv2.putText(
+            output,
+            f"Obstacles detected: {obstacle_count}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 0),
+            2,
+        )
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+        cv2.imshow("Session 8 - Obstacle Detection", output)
+        cv2.imshow("Foreground Mask (debug)", fg_mask)
 
-cap.release()
-cv2.destroyAllWindows()
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    print("Obstacle detection stopped.")
+
+
+if __name__ == "__main__":
+    main()
